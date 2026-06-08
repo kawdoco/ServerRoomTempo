@@ -3,7 +3,7 @@
 <h2>Aims of the Project </h2>
 <p><li> Ensure secure and efficient management of server room operations.</li></p>
 <li>Monitor environmental conditions (temperature, humidity, power usage). </li>
-<li> Monitor environmental conditions (temperature, humidity, power usage). </li>
+<li> Generate alerts and reports for proactive issue resolution. </li>
 
   <h2>Scope </h2>
   <h3><strong> The system will include:</strong> </h3>
