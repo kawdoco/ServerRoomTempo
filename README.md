@@ -33,7 +33,7 @@
 <li>Utlise Logs to establish Incident Recovery Strategy  </li>
 <li>Use this logs as an inputs to  Comprehensive System Monitoring </li>
 
-<h2>Reaseach and Installation Location </h2>
+<h2>Research, Development  and Installation Location </h2>
 <li>BCI Campus Negombo - Sri Lanka </li>
   
   
