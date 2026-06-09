@@ -27,9 +27,14 @@
 <li>Wi-Fi Router/Access Point  
 (ESP32 will connect to this for sending data)</li>
 
-<h2>🔔 Output & Monitoring</h2>
+<h2>🔔 Outputs & Monitoring</h2>
 <li>Sending Alerts Via Messages </li>
+<li>Create Logs for future incidents </li>
+<li>Utlise Logs to establish Incident Recovery Strategy  </li>
+<li>Use this logs as an inputs to  Comprehensive System Monitoring </li>
 
+<h2>Reaseach and Installation Location </h2>
+<li>BCI Campus Negombo - Sri Lanka </li>
   
   
 </html>
