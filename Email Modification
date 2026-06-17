@@ -1,0 +1,201 @@
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
+#include <DHT.h>
+#include <ESP_Mail_Client.h> // Required for sending emails natively
+
+// Network Credentials
+const char *ssid = "ABC";
+const char *password = "ABC";
+
+// SMTP Server Configuration (Example for Gmail)
+#define SMTP_HOST "smtp.gmail.com"
+#define SMTP_PORT 465 // Using SSL
+
+// Email Credentials
+#define AUTHOR_EMAIL "YOUR_EMAIL@gmail.com"          // Your sending email address
+#define AUTHOR_PASSWORD "YOUR_GMAIL_APP_PASSWORD"   // Your 16-character App Password
+
+// Recipient Email
+#define RECIPIENT_EMAIL "abc@bci.lk"             // Updated recipient address
+
+WebServer server(80);
+
+// Configured for DHT22 connected to GPIO 26
+DHT dht(26, DHT22);
+
+// SMTP Session object used for email sending
+SMTPSession smtp;
+
+// Variable to track the last time an email was sent 
+// (Prevents flooding your inbox every 4 seconds)
+unsigned long lastMessageTime = 0;
+const unsigned long messageDelay = 600000; // 10 minutes delay between alerts (in milliseconds)
+
+// Callback function to monitor the SMTP status in the Serial Monitor
+void smtpCallback(SMTP_Status status);
+
+void handleRoot() {
+  char msg[1500];
+
+  snprintf(msg, 1500,
+           "<html>\
+  <head>\
+    <meta http-equiv='refresh' content='4'/>\
+    <meta name='viewport' content='width=device-width, initial-scale=1'>\
+    <link rel='stylesheet' href='https://use.fontawesome.com/releases/v5.7.2/css/all.css' integrity='sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr' crossorigin='anonymous'>\
+    <title>ESP32 DHT Server</title>\
+    <style>\
+    html { font-family: Arial; display: inline-block; margin: 0px auto; text-align: center;}\
+    h2 { font-size: 3.0rem; }\
+    p { font-size: 3.0rem; }\
+    .units { font-size: 1.2rem; }\
+    .dht-labels{ font-size: 1.5rem; vertical-align:middle; padding-bottom: 15px;}\
+    </style>\
+  </head>\
+  <body>\
+      <h2>ESP32 DHT Server!</h2>\
+      <p>\
+        <i class='fas fa-thermometer-half' style='color:#ca3517;'></i>\
+        <span class='dht-labels'>Temperature</span>\
+        <span>%.2f</span>\
+        <sup class='units'>&deg;C</sup>\
+      </p>\
+      <p>\
+        <i class='fas fa-tint' style='color:#00add6;'></i>\
+        <span class='dht-labels'>Humidity</span>\
+        <span>%.2f</span>\
+     <sup class='units'>&percnt;</sup>\
+      </p>\
+  </body>\
+</html>",
+           readDHTTemperature(), readDHTHumidity()
+          );
+  server.send(200, "text/html", msg);
+}
+
+void sendEmailAlert(float temp) {
+  smtp.debug(1);
+  smtp.callback(smtpCallback);
+
+  Session_Config config;
+  config.server.host_name = SMTP_HOST;
+  config.server.port = SMTP_PORT;
+  config.login.email = AUTHOR_EMAIL;
+  config.login.password = AUTHOR_PASSWORD;
+  config.login.user_domain = "";
+
+  SMTP_Message message;
+  message.sender.name = "ESP32 Temp Alert System";
+  message.sender.email = AUTHOR_EMAIL;
+  message.subject = "CRITICAL: Server Room Temperature High!";
+  message.addRecipient("IT Support / Shanike", RECIPIENT_EMAIL);
+
+  // Customized alert message body
+  String textMsg = "Attention,\n\n";
+  textMsg += "Server Room's Temperature is high pls check in.\n";
+  textMsg += "Current Temperature: " + String(temp) + " °C\n\n";
+  textMsg += "Please inspect the server room environment and cooling units immediately.";
+  
+  message.text.content = textMsg.c_str();
+  message.text.charSet = "us-ascii";
+  message.text.transfer_encoding = Content_Transfer_Encoding::enc_7bit;
+  
+  message.priority = esp_mail_smtp_priority::esp_mail_smtp_priority_high;
+
+  if (!smtp.connect(&config)){
+    Serial.println("Connection to SMTP server failed.");
+    return;
+  }
+
+  if (!MailClient.sendMail(&smtp, &message)) {
+    Serial.println("Error sending Email, " + smtp.errorReason());
+  }
+}
+
+void setup(void) {
+  Serial.begin(115200);
+  dht.begin();
+  
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  Serial.println("");
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.print("Connected to ");
+  Serial.println(ssid);
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  if (MDNS.begin("esp32")) {
+    Serial.println("MDNS responder started");
+  }
+  
+  server.on("/", handleRoot);
+  server.begin();
+  Serial.println("HTTP server started");
+}
+
+void loop(void) {
+  server.handleClient();
+  
+  float currentTemp = readDHTTemperature();
+  
+  // Triggers email alert if temperature reaches or exceeds 30.0°C[cite: 1]
+  if (currentTemp >= 30.0) {
+    if (millis() - lastMessageTime >= messageDelay) {
+      Serial.println("Triggering server room email notification...");
+      sendEmailAlert(currentTemp);
+      lastMessageTime = millis(); // Reset 10-minute timeout loop[cite: 1]
+    }
+  }
+
+  delay(2); // allow the cpu to switch to other tasks
+}
+
+float readDHTTemperature() {
+  float t = dht.readTemperature();
+  if (isnan(t)) {    
+    Serial.println("Failed to read from DHT sensor!");
+    return -1;
+  } else {
+    return t;
+  }
+}
+
+float readDHTHumidity() {
+  float h = dht.readHumidity();
+  if (isnan(h)) {
+    Serial.println("Failed to read from DHT sensor!");
+    return -1;
+  } else {
+    return h;
+  }
+}
+
+void smtpCallback(SMTP_Status status) {
+  Serial.println(status.info());
+
+  if (status.success()) {
+    Serial.println("----------------");
+    Serial.printf("Message sent success: %d\n", status.completedCount());
+    Serial.printf("Message sent failed: %d\n", status.failedCount());
+    Serial.println("----------------\n");
+    
+    struct tm dt;
+    for (size_t i = 0; i < smtp.sendingResult.size(); i++) {
+      SMTP_Result result = smtp.sendingResult.getItem(i);
+      time_t ts = (time_t)result.timestamp;
+      localtime_r(&ts, &dt);
+      Serial.printf("Status: %s\n", result.completed ? "success" : "failed");
+      Serial.printf("Recipient: %s\n", result.recipients.c_str());
+    }
+    Serial.println("----------------\n");
+  }
+}
