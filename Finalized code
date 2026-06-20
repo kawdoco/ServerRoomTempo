@@ -1,0 +1,115 @@
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
+#include <DHT.h>
+#include <ESP_Mail_Client.h>
+
+// Network Credentials
+const char *ssid = "xxxxx";  //add wifi 
+const char *password = "######";  // add passkey
+
+// SMTP Server Configuration
+#define SMTP_HOST "smtp.gmail.com"
+#define SMTP_PORT 465 
+
+// Email Credentials
+#define AUTHOR_EMAIL "bciservermgt@gmail.com"          
+#define AUTHOR_PASSWORD "xxxxxx"   // need to add password 
+
+// Recipient Email
+#define RECIPIENT_EMAIL "xxxx@bci.lk"             
+
+WebServer server(80);
+DHT dht(26, DHT22);
+SMTPSession smtp;
+
+unsigned long lastMessageTime = 0;
+const unsigned long messageDelay = 600000; // 10 minutes delay between alerts
+
+// Callback function declaration for SMTP
+void smtpCallback(SMTP_Status status);
+
+// --- Core Helper Functions ---
+float readDHTTemperature() {
+  float t = dht.readTemperature();
+  return (isnan(t)) ? -1 : t;
+}
+
+float readDHTHumidity() {
+  float h = dht.readHumidity();
+  return (isnan(h)) ? -1 : h;
+}
+
+// Simplified web page handler (Plain Text / No Complex HTML)
+void handleRoot() {
+  String msg = "ESP32 Server Room Monitor\n";
+  msg += "---------------------------\n";
+  msg += "Temperature: " + String(readDHTTemperature(), 2) + " C\n";
+  msg += "Humidity: " + String(readDHTHumidity(), 2) + " %\n";
+  
+  server.send(200, "text/plain", msg);
+}
+
+void sendEmailAlert(float temp) {
+  smtp.debug(0); // Set to 0 to cut down unnecessary serial logging output
+  smtp.callback(smtpCallback);
+
+  Session_Config config;
+  config.server.host_name = SMTP_HOST;
+  config.server.port = SMTP_PORT;
+  config.login.email = AUTHOR_EMAIL;
+  config.login.password = AUTHOR_PASSWORD;
+
+  SMTP_Message message;
+  message.sender.name = "ESP32 Alert";
+  message.sender.email = AUTHOR_EMAIL;
+  message.subject = "CRITICAL: Server Room Temperature High!";
+  message.addRecipient("IT Support", RECIPIENT_EMAIL);
+  
+  String textMsg = "Server Room Temperature is high: " + String(temp) + " C\n";
+  message.text.content = textMsg.c_str();
+  
+  if (smtp.connect(&config)){
+    MailClient.sendMail(&smtp, &message);
+  }
+}
+
+void setup(void) {
+  Serial.begin(115200);
+  dht.begin();
+  
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nWiFi Connected.");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+  
+  server.on("/", handleRoot);
+  server.begin();
+}
+
+void loop(void) {
+  server.handleClient();
+  
+  float currentTemp = readDHTTemperature();
+  if (currentTemp >= 30.0) {
+    if (millis() - lastMessageTime >= messageDelay) {
+      sendEmailAlert(currentTemp);
+      lastMessageTime = millis(); // Reset 10-minute timeout loop
+    }
+  }
+  delay(2);
+}
+
+void smtpCallback(SMTP_Status status) {
+  if (status.success()) {
+    Serial.println("Email sent successfully!");
+  }
+}
